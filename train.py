@@ -143,14 +143,6 @@ def get_args():
     sys.stdout = Tee(os.path.join(args.output, "out.txt"))
     sys.stderr = Tee(os.path.join(args.output, "err.txt"))
 
-    ## Hard coding arguments for debugging purpose
-    # dset = "PACS"
-    args.dataset = "PACS"
-    args.gpu_ids = 0
-    args.data_dir = "data/PACS/"
-    args.net = "resnet18"
-    args.task = "img_dg"
-    args.output = "output"
     ###
     # args = img_param_init(args)
     print_environ()
