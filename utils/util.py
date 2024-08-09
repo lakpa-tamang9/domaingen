@@ -105,7 +105,7 @@ def img_param_init(args, dataset):
         domains = ["art_painting", "cartoon", "photo", "sketch"]
     elif dataset == "VLCS":
         domains = ["Caltech101", "LabelMe", "SUN09", "VOC2007"]
-    elif dataset == "terrainc":
+    elif dataset == "terra_incognita":
         domains = ["location_38", "location_43", "location_46", "location_100"]
     elif dataset == "domainnet":
         domains = [
@@ -126,7 +126,12 @@ def img_param_init(args, dataset):
         "PACS": ["art_painting", "cartoon", "photo", "sketch"],
         "dg5": ["mnist", "mnist_m", "svhn", "syn", "usps"],
         "VLCS": ["Caltech101", "LabelMe", "SUN09", "VOC2007"],
-        "terrainc": ["location_38", "location_43", "location_46", "location_100"],
+        "terra_incognita": [
+            "location_38",
+            "location_43",
+            "location_46",
+            "location_100",
+        ],
         "domainnet": [
             "clipart",
             "infograph",
@@ -151,4 +156,6 @@ def img_param_init(args, dataset):
             args.num_classes = 7
         elif dataset == "VLCS":
             args.num_classes = 5
+        elif dataset == "terra_incognita":
+            args.num_classes = 10
     return args

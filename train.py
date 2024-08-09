@@ -167,8 +167,8 @@ if __name__ == "__main__":
         # "VLCS": 4,
         "office": 3,
         # "office-home": 4,
-        # "office-caltech": 4,
         # "domainnet": 6,
+        "terra_incognita": 10,
     }
     dataset_results = []
     for dset in domain_counts.keys():
