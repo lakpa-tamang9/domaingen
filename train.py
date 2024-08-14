@@ -30,7 +30,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def get_args():
     parser = argparse.ArgumentParser(description="DG")
-    parser.add_argument("--algorithm", type=str, default="ERM")
+    parser.add_argument("--algorithm", type=str, default="ERMDPP")
     parser.add_argument("--exp_name", type=str, default="dg")
     parser.add_argument("--alpha", type=float, default=1, help="DANN dis alpha")
     parser.add_argument(
@@ -96,7 +96,7 @@ def get_args():
     parser.add_argument(
         "--net",
         type=str,
-        default="resnet16",
+        default="resnet50",
         help="featurizer: vgg16, resnet50, resnet101,DTNBase",
     )
     parser.add_argument("--N_WORKERS", type=int, default=4)
@@ -132,7 +132,7 @@ def get_args():
         help="target domains, test domain (other domains will be used for training)",
     )
     parser.add_argument(
-        "--output", type=str, default="train_output", help="result output path"
+        "--output", type=str, default="output", help="result output path"
     )
     parser.add_argument("--weight_decay", type=float, default=5e-4)
     args = parser.parse_args()
@@ -155,12 +155,12 @@ if __name__ == "__main__":
 
     loss_list = alg_loss_dict(args)
     domain_counts = {
-        # "PACS": 4,
+        "PACS": 4,
         # "VLCS": 4,
-        "office": 3,
+        # "office": 3,
         # "office-home": 4,
         # "domainnet": 6,
-        "terra_incognita": 10,
+        # "terra_incognita": 4,
     }
     dataset_results = []
     for dset in domain_counts.keys():
@@ -169,7 +169,7 @@ if __name__ == "__main__":
         print(f"Training for {dset}")
         args.data_dir = f"data/{dset}/"
         results = []
-        for test_env in range(domain_counts[dset]):
+        for test_env in range(3, domain_counts[dset]):
             print(f"target dataset set to {args.img_dataset[dset][test_env]}")
             train_loaders, eval_loaders = get_img_dataloader_mod(args, dset, [test_env])
             sample_data = next(iter(train_loaders[0]))

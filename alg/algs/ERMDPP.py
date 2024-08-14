@@ -31,7 +31,10 @@ class ERMDPP(Algorithm):
 
         # Compute the RBF kernel matrix
         features = self.featurizer(all_x).detach().cpu().numpy()
-        kernel_matrix = rbf_kernel(features, gamma=0.1)
+        # kernel_matrix = rbf_kernel(features, gamma=0.1)
+        kernel_matrix = rbf_kernel(
+            all_x, gamma=0.5
+        )  # large gamma values --> narrow rbf kernel and vice versa
 
         diversity_loss = -torch.logdet(torch.from_numpy(kernel_matrix))
 
