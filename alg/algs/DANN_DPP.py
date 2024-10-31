@@ -6,13 +6,14 @@ import torch.nn.functional as F
 from alg.modelopera import get_fea
 from network import Adver_network, common_network
 from alg.algs.base import Algorithm
+from sklearn.metrics.pairwise import rbf_kernel
 
 
-class DANN(Algorithm):
+class DANN_DPP(Algorithm):
 
     def __init__(self, args):
 
-        super(DANN, self).__init__(args)
+        super(DANN_DPP, self).__init__(args)
 
         self.featurizer = get_fea(args)
         self.classifier = common_network.feat_classifier(
@@ -30,6 +31,12 @@ class DANN(Algorithm):
         all_y = torch.cat([data[1].cuda().long() for data in minibatches])
         all_z = self.featurizer(all_x)
 
+        kernel_matrix = rbf_kernel(
+            all_z.detach().cpu().numpy(), gamma=0.5
+        )  # large gamma values --> narrow rbf kernel and vice versa
+
+        diversity_loss = -torch.logdet(torch.from_numpy(kernel_matrix))
+
         disc_input = all_z
         disc_input = Adver_network.ReverseLayerF.apply(disc_input, self.args.alpha)
         disc_out = self.discriminator(disc_input)
@@ -43,7 +50,7 @@ class DANN(Algorithm):
         disc_loss = F.cross_entropy(disc_out, disc_labels)
         all_preds = self.classifier(all_z)
         classifier_loss = F.cross_entropy(all_preds, all_y)
-        loss = classifier_loss + disc_loss
+        loss = classifier_loss + disc_loss + diversity_loss
         opt.zero_grad()
         loss.backward()
         opt.step()

@@ -43,13 +43,18 @@ def alg_loss_dict(args):
     loss_dict = {
         "ANDMask": ["total"],
         "CORAL": ["class", "coral", "total"],
+        "CORAL_DPP": ["class", "coral", "total"],
         "DANN": ["class", "dis", "total"],
+        "DANN_DPP": ["class", "dis", "total"],
         "ERM": ["class"],
         "ERMDPP": ["class"],
         "Mixup": ["class"],
+        "Mixup_DPP": ["class"],
         "MLDG": ["total"],
         "MMD": ["class", "mmd", "total"],
+        "MMDDPP": ["class", "mmd", "diversity_loss", "total"],
         "GroupDRO": ["group"],
+        "GroupDRO_DPP": ["group"],
         "RSC": ["class"],
         "VREx": ["loss", "nll", "penalty"],
         "DIFEX": ["class", "dist", "exp", "align", "total"],
@@ -97,7 +102,7 @@ def img_param_init(args, dataset):
         domains = ["amazon", "dslr", "webcam"]
     elif dataset == "office-caltech":
         domains = ["amazon", "dslr", "webcam", "caltech"]
-    elif dataset == "office-home":
+    elif dataset == "OfficeHome":
         domains = ["Art", "Clipart", "Product", "Real_World"]
     elif dataset == "dg5":
         domains = ["mnist", "mnist_m", "svhn", "syn", "usps"]
@@ -105,9 +110,9 @@ def img_param_init(args, dataset):
         domains = ["art_painting", "cartoon", "photo", "sketch"]
     elif dataset == "VLCS":
         domains = ["Caltech101", "LabelMe", "SUN09", "VOC2007"]
-    elif dataset == "terra_incognita":
+    elif dataset == "TerraIncognita":
         domains = ["location_38", "location_43", "location_46", "location_100"]
-    elif dataset == "domainnet":
+    elif dataset == "DomainNet":
         domains = [
             "clipart",
             "infograph",
@@ -122,17 +127,17 @@ def img_param_init(args, dataset):
     args.img_dataset = {
         "office": ["amazon", "dslr", "webcam"],
         "office-caltech": ["amazon", "dslr", "webcam", "caltech"],
-        "office-home": ["Art", "Clipart", "Product", "Real_World"],
+        "OfficeHome": ["Art", "Clipart", "Product", "Real_World"],
         "PACS": ["art_painting", "cartoon", "photo", "sketch"],
         "dg5": ["mnist", "mnist_m", "svhn", "syn", "usps"],
         "VLCS": ["Caltech101", "LabelMe", "SUN09", "VOC2007"],
-        "terra_incognita": [
+        "TerraIncognita": [
             "location_38",
             "location_43",
             "location_46",
             "location_100",
         ],
-        "domainnet": [
+        "DomainNet": [
             "clipart",
             "infograph",
             "painting",
@@ -146,16 +151,16 @@ def img_param_init(args, dataset):
         args.num_classes = 10
     else:
         args.input_shape = (3, 224, 224)
-        if dataset == "office-home":
+        if dataset == "OfficeHome":
             args.num_classes = 65
         elif dataset == "office":
             args.num_classes = 31
-        elif dataset == "domainnet":
+        elif dataset == "DomainNet":
             args.num_classes = 345
         elif dataset == "PACS":
             args.num_classes = 7
         elif dataset == "VLCS":
             args.num_classes = 5
-        elif dataset == "terra_incognita":
+        elif dataset == "TerraIncognita":
             args.num_classes = 10
     return args

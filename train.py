@@ -6,6 +6,7 @@ import time
 import numpy as np
 import argparse
 import csv
+import torch.nn as nn
 from alg.opt import *
 from alg import alg, modelopera
 from utils.util import (
@@ -30,7 +31,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def get_args():
     parser = argparse.ArgumentParser(description="DG")
-    parser.add_argument("--algorithm", type=str, default="ERMDPP")
+    parser.add_argument("--algorithm", type=str, default="MMDDPP")
     parser.add_argument("--exp_name", type=str, default="dg")
     parser.add_argument("--alpha", type=float, default=1, help="DANN dis alpha")
     parser.add_argument(
@@ -84,7 +85,7 @@ def get_args():
         help="inital learning rate decay of network",
     )
     parser.add_argument("--lr_gamma", type=float, default=0.0003, help="for optimizer")
-    parser.add_argument("--max_epoch", type=int, default=120, help="max iterations")
+    parser.add_argument("--max_epoch", type=int, default=100, help="max iterations")
     parser.add_argument(
         "--mixupalpha", type=float, default=0.2, help="mixup hyper-param"
     )
@@ -96,8 +97,8 @@ def get_args():
     parser.add_argument(
         "--net",
         type=str,
-        default="resnet50",
-        help="featurizer: vgg16, resnet50, resnet101,DTNBase",
+        default="resnet18",
+        help="featurizer: vgg16, resnet18, resnet50, resnet101,DTNBase",
     )
     parser.add_argument("--N_WORKERS", type=int, default=4)
     parser.add_argument(
@@ -132,7 +133,7 @@ def get_args():
         help="target domains, test domain (other domains will be used for training)",
     )
     parser.add_argument(
-        "--output", type=str, default="output", help="result output path"
+        "--output", type=str, default="kdd_outputs", help="result output path"
     )
     parser.add_argument("--weight_decay", type=float, default=5e-4)
     args = parser.parse_args()
@@ -140,8 +141,6 @@ def get_args():
     args.data_dir = args.data_file + args.data_dir
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     os.makedirs(args.output, exist_ok=True)
-    sys.stdout = Tee(os.path.join(args.output, "out.txt"))
-    sys.stderr = Tee(os.path.join(args.output, "err.txt"))
 
     ###
     # args = img_param_init(args)
@@ -151,125 +150,147 @@ def get_args():
 
 if __name__ == "__main__":
     args = get_args()
-    set_random_seed(args.seed)
 
-    loss_list = alg_loss_dict(args)
     domain_counts = {
         "PACS": 4,
-        # "VLCS": 4,
-        # "office": 3,
-        # "office-home": 4,
-        # "domainnet": 6,
-        # "terra_incognita": 4,
+        "VLCS": 4,
+        "OfficeHome": 4,
+        "TerraIncognita": 4,
+        "DomainNet": 6,
     }
+    N_TRIALS = 3
+    MY_ALGS = [
+        "CORAL",
+        "CORAL_DPP",
+        "GroupDRO",
+        "GroupDRO_DPP",
+        "Mixup",
+        "Mixup_DPP",
+        "MMD",
+        "MMDDPP",
+        "ERM",
+        "ERMDPP",
+        "DANN",
+        "DANN_DPP",
+    ]
     dataset_results = []
-    for dset in domain_counts.keys():
-        args = img_param_init(args, dataset=dset)
-        # for dset in ["office-home", "office-caltech"]:
-        print(f"Training for {dset}")
-        args.data_dir = f"data/{dset}/"
-        results = []
-        for test_env in range(3, domain_counts[dset]):
-            print(f"target dataset set to {args.img_dataset[dset][test_env]}")
-            train_loaders, eval_loaders = get_img_dataloader_mod(args, dset, [test_env])
-            sample_data = next(iter(train_loaders[0]))
-            C, H, W = (
-                sample_data[0].shape[1],
-                sample_data[0].shape[2],
-                sample_data[0].shape[3],
-            )
-            args.input_shape = C * H * W
-            eval_name_dict = train_valid_target_eval_names(args, [test_env])
-            algorithm_class = alg.get_algorithm_class(args.algorithm)
-            algorithm = algorithm_class(args).to(device)
-            algorithm.train()
-            opt = get_optimizer(algorithm, args)
-            sch = get_scheduler(opt, args)
+    for trial in range(N_TRIALS):
+        set_random_seed(args.seed)
+        for algo in MY_ALGS:
+            root_path = "./kdd_outputs/{}".format(args.net)
+            if not os.path.exists(os.path.join(root_path, algo)):
+                os.makedirs(os.path.join(root_path, algo))
+            args.algorithm = algo
+            loss_list = alg_loss_dict(args)
+            for dset in domain_counts.keys():
+                args = img_param_init(args, dataset=dset)
+                # for dset in ["office-home", "office-caltech"]:
+                print(f"Training for {algo} and {dset}. Trial {trial}")
+                args.data_dir = f"data/{dset}/"
+                results = []
+                for test_env in range(domain_counts[dset]):
+                    print(f"target dataset set to {args.img_dataset[dset][test_env]}")
+                    train_loaders, eval_loaders = get_img_dataloader_mod(
+                        args, dset, [test_env]
+                    )
+                    sample_data = next(iter(train_loaders[0]))
+                    C, H, W = (
+                        sample_data[0].shape[1],
+                        sample_data[0].shape[2],
+                        sample_data[0].shape[3],
+                    )
+                    args.input_shape = C * H * W
+                    eval_name_dict = train_valid_target_eval_names(args, [test_env])
+                    algorithm_class = alg.get_algorithm_class(algo)
 
-            s = print_args(args, [])
-            # print("=======hyper-parameter used========")
-            # print(s)
+                    algorithm = algorithm_class(args).to(device)
+                    algorithm.train()
+                    opt = get_optimizer(algorithm, args)
+                    sch = get_scheduler(opt, args)
 
-            if "DIFEX" in args.algorithm:
-                ms = time.time()
-                n_steps = args.max_epoch * args.steps_per_epoch
-                print("start training fft teacher net")
-                opt1 = get_optimizer(algorithm.teaNet, args, isteacher=True)
-                sch1 = get_scheduler(opt1, args)
-                algorithm.teanettrain(train_loaders, n_steps, opt1, sch1)
-                print("complet time:%.4f" % (time.time() - ms))
+                    s = print_args(args, [])
 
-            acc_record = {}
-            acc_type_list = ["train", "valid", "target"]
-            train_minibatches_iterator = zip(*train_loaders)
-            best_valid_acc, target_acc = 0, 0
-            print("===========start training===========")
-            sss = time.time()
+                    acc_record = {}
+                    acc_type_list = ["train", "valid", "target"]
+                    train_minibatches_iterator = zip(*train_loaders)
+                    best_valid_acc, target_acc = 0, 0
+                    print("===========start training===========")
+                    sss = time.time()
 
-            for epoch in range(args.max_epoch):
-                for iter_num in tqdm(range(args.steps_per_epoch)):
-                    minibatches_device = [
-                        (data) for data in next(train_minibatches_iterator)
-                    ]
-                    if (
-                        args.algorithm == "VREx"
-                        and algorithm.update_count == args.anneal_iters
-                    ):
-                        opt = get_optimizer(algorithm, args)
-                        sch = get_scheduler(opt, args)
-                    if "AAE" in args.algorithm:
-                        algorithm = algorithm.lock_model(algorithm)
-                    step_vals = algorithm.update(minibatches_device, opt, sch)
+                    for epoch in range(args.max_epoch):
+                        for iter_num in tqdm(range(args.steps_per_epoch)):
+                            minibatches_device = [
+                                (data) for data in next(train_minibatches_iterator)
+                            ]
+                            step_vals = algorithm.update(minibatches_device, opt, sch)
+                        if (
+                            epoch
+                            in [int(args.max_epoch * 0.7), int(args.max_epoch * 0.9)]
+                        ) and (not args.schuse):
+                            print("manually descrease lr")
+                            for params in opt.param_groups:
+                                params["lr"] = params["lr"] * 0.1
 
-                if (
-                    epoch in [int(args.max_epoch * 0.7), int(args.max_epoch * 0.9)]
-                ) and (not args.schuse):
-                    print("manually descrease lr")
-                    for params in opt.param_groups:
-                        params["lr"] = params["lr"] * 0.1
+                        if (epoch == (args.max_epoch - 1)) or (
+                            epoch % args.checkpoint_freq == 0
+                        ):
+                            print("===========epoch %d===========" % (epoch))
+                            s = ""
+                            for item in loss_list:
+                                s += item + "_loss:%.4f," % step_vals[item]
+                            print(s[:-1])
+                            s = ""
 
-                if (epoch == (args.max_epoch - 1)) or (
-                    epoch % args.checkpoint_freq == 0
-                ):
-                    print("===========epoch %d===========" % (epoch))
-                    s = ""
-                    for item in loss_list:
-                        s += item + "_loss:%.4f," % step_vals[item]
-                    print(s[:-1])
-                    s = ""
+                            # Get accuracies for all accuracy types: train, valid, target (test)
+                            for item in acc_type_list:
+                                acc_record[item] = np.mean(
+                                    np.array(
+                                        [
+                                            modelopera.accuracy(
+                                                algorithm, eval_loaders[i]
+                                            )
+                                            for i in eval_name_dict[item]
+                                        ]
+                                    )
+                                )
+                                s += item + "_acc:%.4f," % acc_record[item]
+                            print(s[:-1])
 
-                    # Get accuracies for all accuracy types: train, valid, target (test)
-                    for item in acc_type_list:
-                        acc_record[item] = np.mean(
-                            np.array(
-                                [
-                                    modelopera.accuracy(algorithm, eval_loaders[i])
-                                    for i in eval_name_dict[item]
-                                ]
-                            )
-                        )
-                        s += item + "_acc:%.4f," % acc_record[item]
-                    print(s[:-1])
+                            # Update the accuracies
+                            if acc_record["valid"] > best_valid_acc:
+                                best_valid_acc = acc_record["valid"]
+                                target_acc = acc_record["target"]
 
-                    # Update the accuracies
-                    if acc_record["valid"] > best_valid_acc:
-                        best_valid_acc = acc_record["valid"]
-                        target_acc = acc_record["target"]
+                            # Save the checkpoint with new accuracy
+                            if args.save_model_every_checkpoint:
+                                save_checkpoint(
+                                    f"model_epoch{epoch}.pkl", algorithm, args
+                                )
+                            print("total cost time: %.4f" % (time.time() - sss))
+                            algorithm_dict = algorithm.state_dict()
 
-                    # Save the checkpoint with new accuracy
-                    if args.save_model_every_checkpoint:
-                        save_checkpoint(f"model_epoch{epoch}.pkl", algorithm, args)
-                    print("total cost time: %.4f" % (time.time() - sss))
-                    algorithm_dict = algorithm.state_dict()
+                    print("valid acc: %.4f" % best_valid_acc)
+                    print("DG result: %.4f" % target_acc)
 
-            print("valid acc: %.4f" % best_valid_acc)
-            print("DG result: %.4f" % target_acc)
+                    results.append(target_acc)
 
-            header = ["Dataset", "Target", "Accuracy"]
-            output_path = os.path.join(args.output, args.algorithm)
-            with open(
-                os.path.join(output_path, "{}_results.txt".format(args.exp_name)), "a"
-            ) as f:
-                f.write("{}\t".format(dset))
-                f.write("{}\t".format(args.img_dataset[dset][test_env]))
-                f.write(f"{str(target_acc)}\n")
+                    header = ["Dataset", "Target", "Accuracy"]
+                    output_path = os.path.join(root_path, algo)
+                    with open(
+                        os.path.join(output_path, f"trial_{trial}_results.txt"),
+                        "a",
+                    ) as f:
+                        f.write("{}\t".format(dset))
+                        f.write("{}\t".format(args.img_dataset[dset][test_env]))
+                        f.write(f"{str(round(target_acc, 3))}\n")
+
+                dset_average = np.mean(results)
+                with open(
+                    os.path.join(output_path, f"trial_{trial}_results.txt"),
+                    "a",
+                ) as f:
+                    f.write(15 * "*")
+                    f.write("{}_Average\t".format(dset))
+                    f.write("Average\t")
+                    f.write(f"{str(round(dset_average, 3))}\n")
+                    f.write(15 * "-")

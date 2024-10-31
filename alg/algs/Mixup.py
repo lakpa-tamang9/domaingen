@@ -1,9 +1,10 @@
 # coding=utf-8
 import numpy as np
 import torch.nn.functional as F
-
+import torch
 from datautil.util import random_pairs_of_minibatches
 from alg.algs.ERM import ERM
+from sklearn.metrics.pairwise import rbf_kernel
 
 
 class Mixup(ERM):
