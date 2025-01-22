@@ -1,6 +1,9 @@
-# Domain Generation
+# Domain Generation with Diversity Sampling
 
-This domain generalization repo is extende version of [DeepDG](https://github.com/jindongwang/transferlearning/tree/master/code/DeepDG). It is created as a testbed to play with different DG algorithms and popular benchmark datasets. I have added following features:
+## How to Run:
 
-1. Training with datasets such as DomainNet, Terra-Incognita etc.
-2. New algorithm (under construction at the moment !!!)
+- Download datasets and put it in `./data` folder. These dataset PACS, VLCS, OfficeHome, Terra-Incognita, and DomainNet can be download from [here](https://github.com/facebookresearch/DomainBed/blob/main/domainbed/datasets.py)
+- Run `train.py`
+  - Prepares dataset
+  - Trains model on different methods: original implementation and DPP sampling aided implementation
+  - Results are stored as text files.
