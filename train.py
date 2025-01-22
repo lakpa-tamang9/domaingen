@@ -163,8 +163,6 @@ if __name__ == "__main__":
     MY_ALGS = [
         "CORAL",
         "CORAL_DPP",
-        "GroupDRO",
-        "GroupDRO_DPP",
         "Mixup",
         "Mixup_DPP",
         "MMD",
