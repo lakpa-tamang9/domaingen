@@ -48,7 +48,7 @@ def get_args():
         "--checkpoint_freq", type=int, default=3, help="Checkpoint every N epoch"
     )
     parser.add_argument(
-        "--classifier", type=str, default="linear", choices=["linear", "wn"]
+        "--classifier", type=str, default="wn", choices=["linear", "wn"]
     )
     parser.add_argument("--data_file", type=str, default="", help="root_dir")
     parser.add_argument("--dataset", type=str, default="office")
@@ -133,7 +133,7 @@ def get_args():
         help="target domains, test domain (other domains will be used for training)",
     )
     parser.add_argument(
-        "--output", type=str, default="kdd_outputs", help="result output path"
+        "--output", type=str, default="ijcai_outputs", help="result output path"
     )
     parser.add_argument("--weight_decay", type=float, default=5e-4)
     args = parser.parse_args()
@@ -158,7 +158,8 @@ if __name__ == "__main__":
         "TerraIncognita": 4,
         "DomainNet": 6,
     }
-    N_TRIALS = 3
+    gammas = [0.01, 0.03, 0.08, 0.1]
+    alpha = 0.6
     MY_ALGS = [
         "CORAL",
         "CORAL_DPP",
@@ -174,10 +175,10 @@ if __name__ == "__main__":
         "DANN_DPP",
     ]
     dataset_results = []
-    for trial in range(N_TRIALS):
-        set_random_seed(args.seed)
+    for gamma in gammas:
         for algo in MY_ALGS:
-            root_path = "./kdd_outputs/{}".format(args.net)
+            print(args.net)
+            root_path = "./ijcai_outputs/{}".format(args.net)
             if not os.path.exists(os.path.join(root_path, algo)):
                 os.makedirs(os.path.join(root_path, algo))
             args.algorithm = algo
@@ -185,7 +186,7 @@ if __name__ == "__main__":
             for dset in domain_counts.keys():
                 args = img_param_init(args, dataset=dset)
                 # for dset in ["office-home", "office-caltech"]:
-                print(f"Training for {algo} and {dset}. Trial {trial}")
+                print(f"Training for {algo} and {dset}")
                 args.data_dir = f"data/{dset}/"
                 results = []
                 for test_env in range(domain_counts[dset]):
@@ -222,7 +223,14 @@ if __name__ == "__main__":
                             minibatches_device = [
                                 (data) for data in next(train_minibatches_iterator)
                             ]
-                            step_vals = algorithm.update(minibatches_device, opt, sch)
+                            if algo == "ERMDPP":
+                                step_vals = algorithm.update(
+                                    minibatches_device, opt, sch, gamma, alpha
+                                )
+                            else:
+                                step_vals = algorithm.update(
+                                    minibatches_device, opt, sch
+                                )
                         if (
                             epoch
                             in [int(args.max_epoch * 0.7), int(args.max_epoch * 0.9)]
@@ -256,6 +264,9 @@ if __name__ == "__main__":
                                 s += item + "_acc:%.4f," % acc_record[item]
                             print(s[:-1])
 
+                            test_feats = modelopera.get_feats(
+                                algorithm, eval_loaders[0]
+                            )
                             # Update the accuracies
                             if acc_record["valid"] > best_valid_acc:
                                 best_valid_acc = acc_record["valid"]
@@ -277,7 +288,12 @@ if __name__ == "__main__":
                     header = ["Dataset", "Target", "Accuracy"]
                     output_path = os.path.join(root_path, algo)
                     with open(
-                        os.path.join(output_path, f"trial_{trial}_results.txt"),
+                        os.path.join(
+                            output_path,
+                            "g{}_a{}_{}_batch{}_results.txt".format(
+                                gamma, alpha, args.net, args.batch_size
+                            ),
+                        ),
                         "a",
                     ) as f:
                         f.write("{}\t".format(dset))
@@ -286,7 +302,12 @@ if __name__ == "__main__":
 
                 dset_average = np.mean(results)
                 with open(
-                    os.path.join(output_path, f"trial_{trial}_results.txt"),
+                    os.path.join(
+                        output_path,
+                        "g{}_a{}_{}_batch{}_results.txt".format(
+                            gamma, alpha, args.net, args.batch_size
+                        ),
+                    ),
                     "a",
                 ) as f:
                     f.write(15 * "*")
