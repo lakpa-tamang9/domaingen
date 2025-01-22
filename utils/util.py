@@ -58,6 +58,8 @@ def alg_loss_dict(args):
         "RSC": ["class"],
         "VREx": ["loss", "nll", "penalty"],
         "DIFEX": ["class", "dist", "exp", "align", "total"],
+        "MBDG": ["loss"],
+        "MBDGDPP": ["loss"],
     }
     return loss_dict[args.algorithm]
 

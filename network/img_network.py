@@ -2,8 +2,16 @@
 import torch.nn as nn
 from torchvision import models
 
-vgg_dict = {"vgg11": models.vgg11, "vgg13": models.vgg13, "vgg16": models.vgg16, "vgg19": models.vgg19,
-            "vgg11bn": models.vgg11_bn, "vgg13bn": models.vgg13_bn, "vgg16bn": models.vgg16_bn, "vgg19bn": models.vgg19_bn}
+vgg_dict = {
+    "vgg11": models.vgg11,
+    "vgg13": models.vgg13,
+    "vgg16": models.vgg16,
+    "vgg19": models.vgg19,
+    "vgg11bn": models.vgg11_bn,
+    "vgg13bn": models.vgg13_bn,
+    "vgg16bn": models.vgg16_bn,
+    "vgg19bn": models.vgg19_bn,
+}
 
 
 class VGGBase(nn.Module):
@@ -13,8 +21,7 @@ class VGGBase(nn.Module):
         self.features = model_vgg.features
         self.classifier = nn.Sequential()
         for i in range(6):
-            self.classifier.add_module(
-                "classifier"+str(i), model_vgg.classifier[i])
+            self.classifier.add_module("classifier" + str(i), model_vgg.classifier[i])
         self.in_features = model_vgg.classifier[6].in_features
 
     def forward(self, x):
@@ -24,8 +31,15 @@ class VGGBase(nn.Module):
         return x
 
 
-res_dict = {"resnet18": models.resnet18, "resnet34": models.resnet34, "resnet50": models.resnet50,
-            "resnet101": models.resnet101, "resnet152": models.resnet152, "resnext50": models.resnext50_32x4d, "resnext101": models.resnext101_32x8d}
+res_dict = {
+    "resnet18": models.resnet18,
+    "resnet34": models.resnet34,
+    "resnet50": models.resnet50,
+    "resnet101": models.resnet101,
+    "resnet152": models.resnet152,
+    "resnext50": models.resnext50_32x4d,
+    "resnext101": models.resnext101_32x8d,
+}
 
 
 class ResBase(nn.Module):
@@ -72,9 +86,9 @@ class DTNBase(nn.Module):
             nn.Conv2d(128, 256, kernel_size=5, stride=2, padding=2),
             nn.BatchNorm2d(256),
             nn.Dropout2d(0.5),
-            nn.ReLU()
+            nn.ReLU(),
         )
-        self.in_features = 256*4*4
+        self.in_features = 256 * 4 * 4
 
     def forward(self, x):
         x = self.conv_params(x)
@@ -94,7 +108,7 @@ class LeNetBase(nn.Module):
             nn.MaxPool2d(2),
             nn.ReLU(),
         )
-        self.in_features = 50*4*4
+        self.in_features = 50 * 4 * 4
 
     def forward(self, x):
         x = self.conv_params(x)

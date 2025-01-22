@@ -37,6 +37,7 @@ ALGORITHMS = [
     "VREx",
     "DIFEX",
     "AAE",
+    "MBDG",
 ]
 
 

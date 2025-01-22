@@ -33,3 +33,13 @@ def accuracy(network, loader):
             total += len(x)
     network.train()
     return correct / total
+
+
+def get_feats(network, loader):
+    network.eval()
+    with torch.no_grad():
+        for data in loader:
+            x = data[0].to(device).float()
+            feats = network.featurizer(x)
+    network.train()
+    return feats
