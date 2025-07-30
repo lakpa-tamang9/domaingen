@@ -28,23 +28,10 @@ torch.autograd.set_detect_anomaly(True)
 def get_args():
     parser = argparse.ArgumentParser(description="DG")
     parser.add_argument("--algorithm", type=str, default="ERM")
-    parser.add_argument("--exp_name", type=str, default="dg")
-    parser.add_argument("--alpha", type=float, default=1, help="DANN dis alpha")
-    parser.add_argument(
-        "--anneal_iters",
-        type=int,
-        default=500,
-        help="Penalty anneal iters used in VREx",
-    )
     parser.add_argument("--batch_size", type=int, default=32, help="batch_size")
     parser.add_argument(
         "--steps_per_epoch", type=int, default=100, help="steps per epoch"
     )
-    parser.add_argument("--beta", type=float, default=1, help="DIFEX beta")
-    parser.add_argument(
-        "--train_domains", nargs="*", default=None
-    )  # e.g. 0 15 30 45 60
-    parser.add_argument("--test_domains", nargs="*", default=None)  # e.g. 75
     parser.add_argument("--beta1", type=float, default=0.5, help="Adam hyper-param")
     parser.add_argument("--bottleneck", type=int, default=256)
     parser.add_argument(
@@ -54,7 +41,6 @@ def get_args():
         "--classifier", type=str, default="wn", choices=["linear", "wn"]
     )
     parser.add_argument("--data_file", type=str, default="", help="root_dir")
-    parser.add_argument("--dataset", type=str, default="office")
     parser.add_argument("--data_dir", type=str, default="", help="data dir")
     parser.add_argument(
         "--dis_hidden", type=int, default=256, help="dis hidden dimension"
@@ -68,7 +54,6 @@ def get_args():
     parser.add_argument(
         "--gpu_id", type=str, nargs="?", default="0", help="device id to run"
     )
-    parser.add_argument("--groupdro_eta", type=float, default=1, help="groupdro eta")
     parser.add_argument(
         "--inner_lr", type=float, default=1e-2, help="learning rate used in MLDG"
     )
@@ -92,10 +77,7 @@ def get_args():
     parser.add_argument(
         "--mixupalpha", type=float, default=0.2, help="mixup hyper-param"
     )
-    parser.add_argument("--mldg_beta", type=float, default=1, help="mldg hyper-param")
-    parser.add_argument(
-        "--mmd_gamma", type=float, default=1, help="MMD, CORAL hyper-param"
-    )
+
     parser.add_argument("--momentum", type=float, default=0.9, help="for optimizer")
     parser.add_argument(
         "--net",
