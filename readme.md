@@ -1,4 +1,4 @@
-# Domain Generation with Diversity Sampling
+# Uncertainty-guided Diversity Sampling Regularization for Domain Generalization
 
 ## Datasets:
 
