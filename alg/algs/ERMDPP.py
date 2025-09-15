@@ -31,60 +31,41 @@ class ERMDPP(Algorithm):
         self.epochs = args.max_epoch
         self.network = nn.Sequential(self.featurizer, self.classifier)
 
-    def custom_kernel(self, X):
-        """
-        Compute a custom kernel matrix using pairwise Euclidean distances.
-        """
-        pairwise_dists = squareform(pdist(X, "euclidean"))
-        # Convert distances to a similarity measure (e.g., Gaussian similarity)
-        gamma = 0.8
-        K = np.exp(-gamma * pairwise_dists**2)
-        return K
-
-    def dpp_sampling(self, kernel_matrix, max_samples):
-        """
-        Perform a simple DPP sampling to select max_samples items.
-        """
-        eigenvalues, eigenvectors = np.linalg.eigh(kernel_matrix)
-        eigenvalues = np.flip(eigenvalues)
-        eigenvectors = np.flip(eigenvectors, axis=1)
-
-        # Select samples based on eigenvalues
-        selected_samples = []
-        cumulative_sum = 0
-        for i, eigenvalue in enumerate(eigenvalues):
-            if cumulative_sum + eigenvalue <= max_samples:
-                cumulative_sum += eigenvalue
-                selected_samples.append(i)
-            if len(selected_samples) == max_samples:
-                break
-
-        selected_indices = np.where(
-            np.isin(eigenvalues, eigenvalues[selected_samples])
-        )[0]
-        return selected_indices
-
-    def update(self, minibatches, opt, sch, gamma, alpha):
+    def update(self, minibatches, opt, sch, alpha):
         all_x = torch.cat([data[0].to(device).float() for data in minibatches])
         all_y = torch.cat([data[1].to(device).long() for data in minibatches])
 
         # Compute the RBF kernel matrix
         features = self.featurizer(all_x)
 
-        predicted = self.classifier(features)
-        kernel_matrix = rbf_kernel(
-            features.detach().cpu().numpy(), gamma=gamma
-        )  # large gamma values --> narrow rbf kernel and vice versa
-        diversity_loss = -torch.logdet(torch.from_numpy(kernel_matrix))
+        logits = self.classifier(features)
+        probs = F.softmax(logits, dim=1)
+        entropy = -torch.sum(probs * probs.log(), dim=1)
+        entropy = (entropy - entropy.mean()) / (entropy.std() + 1e-6)
+        feat = F.normalize(features, dim=1)
+        feat_weighted = feat * entropy.unsqueeze(1)
 
-        self.dpp_sampling(kernel_matrix, max_samples=200)
-        loss = F.cross_entropy(predicted, all_y)
+        # median heuristic for gamma on weighted features
+        with torch.no_grad():
+            dist_sq = (
+                (feat_weighted.unsqueeze(0) - feat_weighted.unsqueeze(1)) ** 2
+            ).sum(2)
+            gamma = 1.0 / (dist_sq.median() + 1e-8)
 
-        total_loss = alpha * loss + (1 - alpha) * diversity_loss
+        # RBF kernel via sklearn (CPU), then bring back as torch on device
+        K = rbf_kernel(feat_weighted.detach().cpu().numpy(), gamma=gamma.item())
+        K = K / (np.trace(K) + 1e-6)
+        K += np.eye(K.shape[0]) * 1e-1
+        K_t = torch.tensor(K, device=device, dtype=feat.dtype)
+
+        cls_loss = F.cross_entropy(logits, all_y)
+        diversity_loss = -torch.logdet(K_t)
+        total_loss = alpha * cls_loss + (1 - alpha) * diversity_loss
 
         opt.zero_grad()
         total_loss.backward()
         opt.step()
+
         if sch:
             sch.step()
         return {"class": total_loss.item()}
