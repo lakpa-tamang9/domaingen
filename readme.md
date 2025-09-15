@@ -6,7 +6,23 @@
 
 ## Usage
 
-Run `python dpp.py. This performs following.
+To train, do following:
 
-- Prepares dataset
-- Trains the model using all the dataset and their respective domains and logs the results in `logs/dpp_train_xxxxx.log` file. The model is validated and the best accuracy on target domain is stored along training.
+- With feature modulation:
+  ```
+  python train.py --feat_mod
+  ```
+- Without feature modulation:
+  ```
+  python train.py
+  ```
+
+## Training and Evaluation Overview
+
+Trains the model with three independent runs on different seeds. The outputs are logged as following:
+
+```
+logs/dpp_train_xxxxx.log
+```
+
+Trains the model using all the dataset and their respective domains and logs the results in `logs/{dataset}_{algorithm}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'` file. Default algorithm is ERM. It can be changed to other algorithms that are present inside `alg/algs/...`
