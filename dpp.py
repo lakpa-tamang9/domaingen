@@ -25,17 +25,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.autograd.set_detect_anomaly(True)
 
 
-def parse_seeds(s):
-    if not s:
-        return [0]
-    return [int(x) for x in s.split(",")]
-
-
 def get_args():
     parser = argparse.ArgumentParser(description="DG")
     parser.add_argument("--algorithm", type=str, default="ERM")
     parser.add_argument("--batch_size", type=int, default=32, help="batch_size")
-    parser.add_argument("--dataset", type=str, default="pacs", help="dataset name")
     parser.add_argument(
         "--steps_per_epoch", type=int, default=100, help="steps per epoch"
     )
@@ -47,7 +40,6 @@ def get_args():
     parser.add_argument(
         "--classifier", type=str, default="wn", choices=["linear", "wn"]
     )
-    parser.add_argument("--feat_mod", action="store_true", default=False)
     parser.add_argument("--data_file", type=str, default="", help="root_dir")
     parser.add_argument("--data_dir", type=str, default="", help="data dir")
     parser.add_argument(
@@ -85,6 +77,7 @@ def get_args():
     parser.add_argument(
         "--mixupalpha", type=float, default=0.2, help="mixup hyper-param"
     )
+
     parser.add_argument("--momentum", type=float, default=0.9, help="for optimizer")
     parser.add_argument(
         "--net",
@@ -103,12 +96,6 @@ def get_args():
     parser.add_argument("--schuse", action="store_true")
     parser.add_argument("--schusech", type=str, default="cos")
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument(
-        "--seeds",
-        type=str,
-        default="0",
-        help="comma-separated seeds for multi-run stats",
-    )
     parser.add_argument(
         "--split_style",
         type=str,
@@ -134,135 +121,127 @@ def get_args():
     args = parser.parse_args()
     args.steps_per_epoch = 100
     args.data_dir = args.data_file + args.data_dir
-    args.seeds = parse_seeds(args.seeds)
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
+
     return args
 
 
-args = get_args()
+# Create unique log filename with timestamp
+log_filename = f'logs/dpp_train_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
 
-
-log_filename = f'logs/{args.dataset}_{args.algorithm}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
-os.makedirs(os.path.dirname(log_filename), exist_ok=True)
+# Setup logger
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(message)s",
-    handlers=[logging.FileHandler(log_filename), logging.StreamHandler(sys.stdout)],
+    handlers=[
+        logging.FileHandler(log_filename),
+        logging.StreamHandler(sys.stdout),  # log to console
+    ],
 )
+
 logger = logging.getLogger()
 
 
-def compute_stats(values):
-    arr = np.array(values, dtype=np.float64)
-    mean = arr.mean()
-    stderr = arr.std(ddof=1) / np.sqrt(len(arr)) if len(arr) > 1 else 0.0
-    return mean, stderr
+def train(
+    args,
+    model,
+    train_loaders,
+    optimizer,
+    alpha,
+    device=device,
+):
 
-
-def train_one_epoch(args, model, train_loaders, optimizer, alpha, device=device):
     model.train()
     train_minibatches_iterator = zip(*train_loaders)
 
-    last_loss, last_div_loss = 0.0, 0.0
-
-    for _ in range(args.steps_per_epoch):
+    for step in range(args.steps_per_epoch):
         minibatches = [(data) for data in next(train_minibatches_iterator)]
         x_all = torch.cat([data[0].to(device).float() for data in minibatches])
         y_all = torch.cat([data[1].to(device).long() for data in minibatches])
+        d_all = torch.cat(
+            [
+                torch.full((data[0].size(0),), idx, dtype=torch.long).to(device)
+                for idx, data in enumerate(minibatches)
+            ]
+        )  # domain index per sample
 
-        feat = model.featurizer(x_all)  # [B, D]
-        logits = model.classifier(feat)  # [B, C]
+        feat = model.featurizer(x_all)  # [B, 512]
+        logits = model.classifier(feat)  # task prediction
 
-        if args.feat_mod:  # perform feature modulation with entropy
-            probs = F.softmax(logits, dim=1)
-            entropy = -torch.sum(probs * probs.log(), dim=1)
-            entropy = (entropy - entropy.mean()) / (entropy.std() + 1e-6)
-            feat = F.normalize(feat, dim=1)
-            feat_weighted = feat * entropy.unsqueeze(1)
-        else:
-            feat_weighted = feat
+        probs = F.softmax(logits, dim=1)
+        entropy = -torch.sum(probs * probs.log(), dim=1)
+        entropy = (entropy - entropy.mean()) / (entropy.std() + 1e-6)
+        feat = F.normalize(feat, dim=1)
 
-        # median heuristic for gamma on weighted features
+        feat_weighted = feat * entropy.unsqueeze(1)  # [B, D] × [B, 1]
+
         with torch.no_grad():
             dist_sq = (
                 (feat_weighted.unsqueeze(0) - feat_weighted.unsqueeze(1)) ** 2
-            ).sum(2)
+            ).sum(
+                2
+            )  # same like euclidean distance
             gamma = 1.0 / (dist_sq.median() + 1e-8)
 
-        # RBF kernel via sklearn (CPU), then bring back as torch on device
-        K = rbf_kernel(feat_weighted.detach().cpu().numpy(), gamma=gamma.item())
-        K = K / (np.trace(K) + 1e-6)
-        K += np.eye(K.shape[0]) * 1e-1
-        K_t = torch.tensor(K, device=device, dtype=feat.dtype)
+        kernel_matrix = rbf_kernel(
+            feat_weighted.detach().cpu().numpy(), gamma=gamma.item()
+        )
 
-        cls_loss = F.cross_entropy(logits, y_all)
-        diversity_loss = -torch.logdet(K_t)
-        total_loss = alpha * cls_loss + (1 - alpha) * diversity_loss
+        kernel_matrix = kernel_matrix / (
+            np.trace(kernel_matrix) + 1e-6
+        )  # Scale to avoid large logdet
+        kernel_matrix += np.eye(kernel_matrix.shape[0]) * 1e-1
+
+        loss = F.cross_entropy(logits, y_all)
+
+        diversity_loss = -torch.logdet(torch.from_numpy(kernel_matrix))
+        total_loss = alpha * loss + (1 - alpha) * diversity_loss
 
         optimizer.zero_grad()
         total_loss.backward()
         optimizer.step()
 
-        last_loss = cls_loss.item()
-        last_div_loss = diversity_loss.item()
-
-    return last_loss, last_div_loss
+    return loss.item(), diversity_loss.item()
 
 
-@torch.no_grad()
-def evaluate(eval_name_dict, model, eval_loaders):
+def test(eval_name_dict, model, eval_loaders):
     acc_record = {}
-    for split in ["valid", "target"]:
-        acc_record[split] = np.mean(
+    acc_type_list = ["valid", "target"]
+    for item in acc_type_list:
+        acc_record[item] = np.mean(
             np.array(
                 [
                     modelopera.accuracy(model, eval_loaders[i])
-                    for i in eval_name_dict[split]
+                    for i in eval_name_dict[item]
                 ]
             )
         )
+
     return acc_record
 
 
-def run_training_for_seed(args, dataset, alpha, test_env, seed):
-    """One full training run for a given seed. Returns best valid/target over epochs."""
-    set_random_seed(seed)
-    train_loaders, eval_loaders = get_img_dataloader_mod(args, dataset, [test_env])
-    eval_name_dict = train_valid_target_eval_names(args, [test_env])
+def set_random_seed(seed):
+    import random, numpy as np, torch
 
-    algorithm_class = alg.get_algorithm_class(args.algorithm)
-    algorithm_pre = algorithm_class(args)
-    algorithm = nn.DataParallel(algorithm_pre).to(device)
-    opt = get_optimizer(algorithm_pre, args)
-
-    best_valid, best_target = 0.0, 0.0
-    last_cls, last_div = 0.0, 0.0
-
-    for epoch in tqdm(
-        range(args.max_epoch), desc=f"Seed {seed} | {dataset} env={test_env}"
-    ):
-        last_cls, last_div = train_one_epoch(
-            args, algorithm.module, train_loaders, opt, alpha=alpha, device=device
-        )
-        acc_record = evaluate(eval_name_dict, algorithm.module, eval_loaders)
-
-        # track the epoch-best target (and corresponding valid)
-        if acc_record["target"] > best_target:
-            best_target = acc_record["target"]
-            best_valid = acc_record["valid"]
-
-        if (epoch + 1) % max(1, args.checkpoint_freq) == 0:
-            logger.info(
-                f"[{dataset} env={test_env}] Seed {seed} | Epoch {epoch+1:03d} "
-                f"| cls {last_cls:.4f} | dpp {last_div:.4f} "
-                f"| valid {acc_record['valid']*100:.2f} | target {acc_record['target']*100:.2f} "
-                f"| best_target {best_target*100:.2f}"
-            )
-
-    return best_valid, best_target
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
-def main(args):
+def compute_stats(values):
+    """
+    Compute mean and standard error of the mean (SEM) for a list of numbers.
+    """
+    arr = np.array(values)
+    mean = arr.mean()
+    stderr = arr.std(ddof=1) / np.sqrt(len(arr)) if len(arr) > 1 else 0.0
+    return mean, stderr
+
+
+def main():
+    args = get_args()
     dataset_info = {
         "PACS": 4,
         "VLCS": 4,
@@ -270,45 +249,61 @@ def main(args):
         "TerraIncognita": 4,
         "DomainNet": 6,
     }
-
     for dataset, domain_cnt in dataset_info.items():
         args = img_param_init(args, dataset=dataset)
         args.data_dir = f"data/{dataset}/"
+        for test_env in range(domain_cnt):
+            logger.info(f"Target dataset set to {args.img_dataset[dataset][test_env]}")
+            train_loaders, eval_loaders = get_img_dataloader_mod(
+                args, dataset, [test_env]
+            )
+            eval_name_dict = train_valid_target_eval_names(args, [test_env])
 
-        for alpha in range(5, 6):  # for ablation run, change to range(0, 11)
-            alpha = alpha / 10.0
-            logger.info(f"=== Alpha: {alpha} ===")
+            algorithm_class = alg.get_algorithm_class(args.algorithm)
 
-            for test_env in range(domain_cnt):
-                logger.info(
-                    f"=== Dataset {dataset} | Target domain: {args.img_dataset[dataset][test_env]} ==="
-                )
+            algorithm = algorithm_class(args).to(device)
 
-                # Run independent trainings for each seed
-                run_valids, run_targets = [], []
+            opt = get_optimizer(algorithm, args)
 
-                for seed in args.seeds:
-                    best_valid, best_target = run_training_for_seed(
-                        args, dataset, alpha, test_env, seed
+            best_valid_acc, best_target_acc, target_acc = 0, 0, 0
+            for epoch in tqdm(range(args.max_epoch)):
+                target_trial_accs = []
+                valid_trial_accs = []
+                # train_trial_accs = []
+                for trial in range(3):
+                    set_random_seed(42 + epoch + trial)
+                    loss, div_loss = train(
+                        args,
+                        algorithm,
+                        train_loaders,
+                        opt,
+                        alpha=0.5,
                     )
-                    run_valids.append(best_valid)
-                    run_targets.append(best_target)
-                    logger.info(
-                        f"[{dataset} env={test_env}] Seed {seed} finished | best_valid={best_valid*100:.2f}, best_target={best_target*100:.2f}"
-                    )
 
-                # Aggregate stats across seeds (THIS is your mean ± SEM)
-                v_mean, v_sem = compute_stats(run_valids)
-                t_mean, t_sem = compute_stats(run_targets)
+                    acc_record = test(
+                        eval_name_dict=eval_name_dict,
+                        model=algorithm,
+                        eval_loaders=eval_loaders,
+                    )
+                    # Update the accuracies
+                    if acc_record["target"] > target_acc:
+                        best_valid_acc = acc_record["valid"]
+                        target_acc = acc_record["target"]
+
+                    target_trial_accs.append(target_acc)
+                    valid_trial_accs.append(acc_record["valid"])
+
+                target_mean, target_stderr = compute_stats(target_trial_accs)
+                valid_mean, valid_stderr = compute_stats(valid_trial_accs)
 
                 logger.info(
-                    f"[{dataset} env={test_env}] "
-                    f"VALID: {v_mean*100:.2f} ± {v_sem*100:.2f} | "
-                    f"TARGET: {t_mean*100:.2f} ± {t_sem*100:.2f}  (mean ± SEM over seeds {args.seeds})"
+                    f"Epoch {epoch+1:02d} | class_loss {loss:.4f} | dpp_loss {div_loss:.4f} "
+                    f"| Valid Acc: {valid_mean*100:.2f} ± {valid_stderr*100:.2f} "
+                    f"| Target Acc: {target_mean*100:.2f} ± {target_stderr*100:.2f}"
                 )
 
 
 if __name__ == "__main__":
-    main(args)
+    main()
     logger.info("Training completed successfully.")
     logger.info("All done!")

@@ -69,6 +69,20 @@ def get_optimizer(alg, args, inner=False, alias=True, isteacher=False):
     return optimizer
 
 
+def get_meta_optimizer(alg, meta_net, args):
+    model_param_groups = get_params(alg, args, inner=False, alias=True, isteacher=False)
+    meta_net_group = {"params": meta_net.parameters(), "lr": args.lr}  # or custom LR
+
+    # Combine all param groups (flattened)
+    optimizer = torch.optim.SGD(
+        model_param_groups + [meta_net_group],
+        momentum=args.momentum,
+        weight_decay=args.weight_decay,
+        nesterov=True,
+    )
+    return optimizer
+
+
 def get_scheduler(optimizer, args):
     if not args.schuse:
         return None
